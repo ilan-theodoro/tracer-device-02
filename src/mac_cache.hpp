@@ -3,8 +3,12 @@
 
 #include <string>
 #include <HardwareSerial.h>
+#include <HTTPClient.h>
 
 namespace tracer {
+
+  #define WEBSERVICE_URL "http://192.168.1.3:8000/acessos"
+  #define DATA_SIZE 100
 
   struct acesso {
     String mac;
@@ -17,17 +21,18 @@ namespace tracer {
     ~MacCache();
     void add(String mac, int rssi);
     bool readyToSend();
-    String toJsonAndReset();
+    String toJson();
   private:
     long lastTimeSent;
     acesso *data;
     int curDataIndex;
 
+    void sendMac();
     void resetData();
   };
 
   MacCache::MacCache() {
-    data = new acesso[100];
+    data = new acesso[DATA_SIZE];
     lastTimeSent = millis();
     curDataIndex = 0;
   }
@@ -37,22 +42,26 @@ namespace tracer {
   }
 
   void MacCache::add(String mac, int rssi) {
-    if(curDataIndex < 100) {
-      acesso tmp;
-      tmp.mac = mac;
-      tmp.rssi = rssi;
-      data[curDataIndex++] = tmp;
+    if(curDataIndex < DATA_SIZE) {
+      data[curDataIndex].rssi = rssi;
+      data[curDataIndex].mac = mac;
+      curDataIndex++;
     } else {
       Serial.println("OVERFLOW");
+    }
+
+    if (readyToSend()) {
+      sendMac();
+      resetData();
     }
   }
 
   bool MacCache::readyToSend() {
     int timeSpent = millis() - lastTimeSent;
-    return ( timeSpent > 10000 || curDataIndex == 100); //data.size() >= 100 ||
+    return ( timeSpent > 10000 || curDataIndex == DATA_SIZE); //data.size() >= 100 ||
   }
 
-  String MacCache::toJsonAndReset() {
+  String MacCache::toJson() {
     String json = "[";
 
   	for (int i = 0; i < curDataIndex; i++) {
@@ -64,15 +73,22 @@ namespace tracer {
 
   	json[json.length()-1] = ']';
 
-    resetData();
-
   	return json;
   }
 
+  void MacCache::sendMac() {
+    HTTPClient http;
+    http.begin(String(WEBSERVICE_URL));
+    http.addHeader("Content-Type", "application/json");
+    int httpCode = http.POST(toJson());
+    Serial.println(httpCode);
+    http.end();
+  }
+
   void MacCache::resetData() {
-      curDataIndex = 0;
+    curDataIndex = 0;
     lastTimeSent = millis();
-      Serial.println("RESETED");
+    Serial.println("RESETED");
   }
 
 }
